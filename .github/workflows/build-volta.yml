@@ -38,6 +38,7 @@ jobs:
           cmake -S . -B build -G "Ninja Multi-Config" ^
             -DGGML_CUDA=ON ^
             -DCMAKE_CUDA_ARCHITECTURES="70" ^
+            -DGGML_NATIVE=OFF ^
             -DGGML_AVX2=ON ^
             -DGGML_BACKEND_DL=ON ^
             -DLLAMA_BUILD_BORINGSSL=ON ^
