@@ -1,0 +1,78 @@
+name: Build Llama.cpp for Tesla V100 (sm_70)
+
+on:
+  workflow_dispatch:
+    inputs:
+      llama_ref:
+        description: 'Git branch or tag of ggml-org/llama.cpp to build'
+        required: false
+        default: 'master'
+
+jobs:
+  build-v100:
+    name: Windows x64 (CUDA 12.4, sm_70 Volta)
+    runs-on: windows-2022
+
+    steps:
+      - name: Checkout llama.cpp
+        uses: actions/checkout@v4
+        with:
+          repository: ggml-org/llama.cpp
+          ref: ${{ github.event.inputs.llama_ref || 'master' }}
+          path: llama.cpp
+
+      - name: Install Ninja
+        run: choco install ninja -y
+
+      - name: Setup CUDA 12.4 Toolkit
+        uses: ./llama.cpp/.github/actions/windows-setup-cuda
+        with:
+          cuda_version: '12.4'
+          cuda_arch: x64
+
+      - name: Build llama.cpp (sm_70 native SASS)
+        shell: cmd
+        working-directory: llama.cpp
+        run: |
+          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
+          cmake -S . -B build -G "Ninja Multi-Config" ^
+            -DGGML_CUDA=ON ^
+            -DCMAKE_CUDA_ARCHITECTURES="70" ^
+            -DGGML_AVX2=ON ^
+            -DGGML_BACKEND_DL=ON ^
+            -DLLAMA_BUILD_BORINGSSL=ON ^
+            -DLLAMA_BUILD_SERVER=ON
+          cmake --build build --config Release -j %NUMBER_OF_PROCESSORS% --target llama-server llama-cli ggml-cuda
+
+      - name: Assemble Portable Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "package"
+          
+          # Copy executables and DLLs built by llama.cpp
+          Get-ChildItem -Path "llama.cpp\build\bin\Release\*" -Include "*.exe", "*.dll" | Copy-Item -Destination "package" -Force -ErrorAction SilentlyContinue
+          
+          if (Test-Path "llama.cpp\build\bin") {
+            Get-ChildItem -Path "llama.cpp\build\bin\*" -Include "*.exe", "*.dll" | Copy-Item -Destination "package" -Force -ErrorAction SilentlyContinue
+          }
+
+          # Copy essential CUDA runtime DLLs
+          $cudaBin = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.4\bin"
+          if (Test-Path $cudaBin) {
+            Copy-Item "$cudaBin\cudart64_12.dll" -Destination "package" -Force -ErrorAction SilentlyContinue
+            Copy-Item "$cudaBin\cublas64_12.dll" -Destination "package" -Force -ErrorAction SilentlyContinue
+            Copy-Item "$cudaBin\cublasLt64_12.dll" -Destination "package" -Force -ErrorAction SilentlyContinue
+          }
+          
+          Write-Host "Packaged files:"
+          Get-ChildItem -Path "package" | Select-Object Name, Length
+
+          # Compress to zip
+          Compress-Archive -Path "package\*" -DestinationPath "llama-v100-sm70-portable.zip" -Force
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: llama-v100-sm70-portable
+          path: llama-v100-sm70-portable.zip
+          retention-days: 14
