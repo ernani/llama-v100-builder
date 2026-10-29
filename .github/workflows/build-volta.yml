@@ -1,6 +1,9 @@
 name: Build Llama.cpp for Tesla V100 (sm_70)
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       llama_ref:
