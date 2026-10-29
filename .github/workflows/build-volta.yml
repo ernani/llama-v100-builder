@@ -21,6 +21,44 @@ jobs:
           ref: ${{ github.event.inputs.llama_ref || 'master' }}
           path: llama.cpp
 
+      - name: Patch Volta sm_70 Odd-GQA Deadlock (Nanbeige 7:1 Fix)
+        shell: pwsh
+        run: |
+          $fattnPath = "llama.cpp\ggml\src\ggml-cuda\fattn.cu"
+          if (Test-Path $fattnPath) {
+            $content = Get-Content $fattnPath -Raw
+            
+            # 1. Route odd GQA ratio to BEST_FATTN_KERNEL_TILE on Volta
+            $target1 = 'if (volta_mma_available(cc) && Q->ne[0] != 40 && Q->ne[0] != 72) {'
+            $replacement1 = @"
+if (volta_mma_available(cc) && Q->ne[0] != 40 && Q->ne[0] != 72) {
+        if (gqa_ratio % 2 != 0) {
+            return BEST_FATTN_KERNEL_TILE; // Fallback to TILE kernel on Volta for odd GQA (e.g. 7:1) to prevent unaligned WMMA deadlock
+        }
+"@
+            if ($content.Contains($target1)) {
+              $content = $content.Replace($target1, $replacement1)
+              Write-Host "[OK] Patched kernel selection for Volta odd GQA"
+            } else {
+              Write-Warning "Could not find target1 in $fattnPath"
+            }
+
+            # 2. Safety net in switch_ncols2 on Volta: call ext_tile instead of ncols1<1>
+            $target2 = 'ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1<DKQ, DV, 1>(ctx, dst);'
+            $replacement2 = 'ggml_cuda_flash_attn_ext_tile(ctx, dst); // Volta odd-GQA fallback'
+            if ($content.Contains($target2)) {
+              $content = $content.Replace($target2, $replacement2)
+              Write-Host "[OK] Patched switch_ncols2 fallback for Volta odd GQA"
+            } else {
+              Write-Warning "Could not find target2 in $fattnPath"
+            }
+
+            Set-Content -Path $fattnPath -Value $content -NoNewline
+            Write-Host "[SUCCESS] fattn.cu patched successfully!"
+          } else {
+            Write-Error "Could not find $fattnPath"
+          }
+
       - name: Install Ninja
         run: choco install ninja -y
 
