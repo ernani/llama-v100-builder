@@ -68,12 +68,14 @@ Write-Host "[SUCCESS] fattn.cu patched successfully!"
 Write-Host "Reading $commonPath..."
 $contentCommon = Get-Content $commonPath -Raw
 
-# 2.1 Add dynamic pool allocators for K and V
-$target4 = "ggml_cuda_pool_alloc<float2> dst_tmp_meta(pool);"
+# 2.1 Add dynamic pool allocators for K and V BEFORE KV_max
+# (CRITICAL: CUDA memory pool is a LIFO stack. K and V are allocated FIRST, so they MUST be destructed LAST.
+# Placing their declaration before KV_max guarantees reverse-declaration destruction order matches pool stack unwinding.)
+$target4 = "ggml_cuda_pool_alloc<int>    KV_max(pool);"
 $replacement4 = @"
-ggml_cuda_pool_alloc<float2> dst_tmp_meta(pool);
-    ggml_cuda_pool_alloc<half>   K_f16_alloc(pool);
+ggml_cuda_pool_alloc<half>   K_f16_alloc(pool);
     ggml_cuda_pool_alloc<half>   V_f16_alloc(pool);
+    ggml_cuda_pool_alloc<int>    KV_max(pool);
 "@
 
 if ($contentCommon.Contains($target4)) {
