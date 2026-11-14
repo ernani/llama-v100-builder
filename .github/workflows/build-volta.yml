@@ -27,7 +27,7 @@ jobs:
           ref: ${{ github.event.inputs.llama_ref || 'master' }}
           path: llama.cpp
 
-      - name: Patch Volta sm_70 Odd-GQA Deadlock (Nanbeige 7:1 Fix)
+      - name: Patch Volta sm_70 Odd-GQA and Quantized KV Cache Pool
         shell: pwsh
         run: |
           & .\scripts\patch-volta-gqa.ps1 -LlamaDir "llama.cpp"
